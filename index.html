@@ -8,7 +8,96 @@
   <!-- JSZip para empaquetar múltiples imágenes en ZIP local -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
           integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg=="
-          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+          crossorigin="anonymous" referrerpolicy="no-referrer">
+// ═══════════════════════════════════════════════════════════════════
+//  PREVISUALIZACIÓN SEGÚN TIPO — imagen, PDF, vídeo u otro
+//  Formatos imagen soportados: jpeg, png, gif, webp, avif, bmp,
+//                              svg+xml, tiff, ico, heic, heif
+// ═══════════════════════════════════════════════════════════════════
+const IMAGE_MIMES = new Set([
+  'image/jpeg','image/jpg','image/png','image/gif','image/webp',
+  'image/avif','image/bmp','image/svg+xml','image/tiff',
+  'image/x-icon','image/heic','image/heif'
+]);
+const VIDEO_MIMES = new Set([
+  'video/mp4','video/quicktime','video/webm','video/ogg',
+  'video/x-matroska','video/avi','video/x-msvideo'
+]);
+
+function renderSinglePreview(data, meta, container) {
+  container.innerHTML = '';
+  const mime = (meta.mime || '').toLowerCase();
+
+  // Badge de tipo
+  const badge = document.createElement('div');
+  badge.className = 'file-type-badge';
+
+  if (IMAGE_MIMES.has(mime)) {
+    // ── Imagen ───────────────────────────────────────────────────
+    badge.className += ' img';
+    badge.textContent = mime.split('/')[1].toUpperCase();
+    const blob = new Blob([data], { type: mime });
+    const url  = URL.createObjectURL(blob);
+    const img  = document.createElement('img');
+    img.src          = url;
+    img.alt          = meta.name;
+    img.draggable    = false;
+    img.style.cssText = 'max-width:100%;border-radius:var(--radius);border:1px solid var(--border);display:block;pointer-events:none;';
+    container.appendChild(badge);
+    container.appendChild(img);
+
+  } else if (mime === 'application/pdf') {
+    // ── PDF — usando <iframe> que el navegador renderiza nativamente ──
+    badge.className += ' pdf';
+    badge.textContent = 'PDF';
+    const blob = new Blob([data], { type: 'application/pdf' });
+    const url  = URL.createObjectURL(blob);
+    const iframe = document.createElement('iframe');
+    iframe.src              = url;
+    iframe.className        = 'pdf-viewer';
+    iframe.title            = meta.name;
+    // #toolbar=0 oculta la barra de herramientas del visor de Chrome/Edge
+    iframe.src              = url + '#toolbar=0&navpanes=0';
+    container.appendChild(badge);
+    container.appendChild(iframe);
+
+  } else if (VIDEO_MIMES.has(mime)) {
+    // ── Vídeo — <video> nativo del navegador ─────────────────────
+    // .mov (video/quicktime) se reproduce en Safari y Chrome/Edge modernos.
+    // .mp4 (video/mp4) tiene soporte universal.
+    badge.className += ' video';
+    badge.textContent = mime.split('/')[1].toUpperCase().replace('QUICKTIME','MOV');
+    const blob  = new Blob([data], { type: mime });
+    const url   = URL.createObjectURL(blob);
+    const video = document.createElement('video');
+    video.src      = url;
+    video.controls = true;
+    video.className = 'video-player';
+    // Evitar descarga mediante botón derecho sobre el vídeo
+    video.addEventListener('contextmenu', e => e.preventDefault());
+    container.appendChild(badge);
+    container.appendChild(video);
+
+  } else {
+    // ── Tipo no previsualizable — mostrar info + botón descarga ──
+    badge.textContent = (mime || 'archivo').split('/').pop().toUpperCase();
+    const ext  = meta.name.split('.').pop().toUpperCase();
+    const info = document.createElement('div');
+    info.className = 'no-preview';
+    info.innerHTML = `<span class="np-icon">📄</span>
+      <strong>${meta.name}</strong><br>
+      <span>Tipo: ${mime || 'desconocido'} · ${fmtBytes(data.length)}</span><br>
+      <span style="color:var(--muted);font-size:0.7rem;margin-top:6px;display:block">
+        Este formato no tiene previsualización en el navegador.<br>Usa el botón de descarga.
+      </span>`;
+    container.appendChild(badge);
+    container.appendChild(info);
+  }
+
+  container.classList.add('visible');
+}
+
+</script>
 
   <style>
     /* ─── Reset & Base ─────────────────────────────────────────── */
@@ -450,6 +539,55 @@
       .wrapper { padding: 24px 14px 60px; }
       .gallery-actions { flex-direction: column; }
     }
+
+    /* ─── Visor PDF ──────────────────────────────────────────────── */
+    .pdf-viewer {
+      width: 100%;
+      height: 520px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      display: block;
+    }
+    @media (max-width: 480px) { .pdf-viewer { height: 340px; } }
+
+    /* ─── Reproductor vídeo ──────────────────────────────────────── */
+    .video-player {
+      width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      background: #000;
+      display: block;
+      max-height: 420px;
+    }
+
+    /* ─── Badge de tipo de archivo ───────────────────────────────── */
+    .file-type-badge {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      border: 1px solid var(--border);
+      color: var(--dim);
+    }
+    .file-type-badge.img  { border-color: var(--accent); color: var(--accent); }
+    .file-type-badge.pdf  { border-color: #e74c3c; color: #e74c3c; }
+    .file-type-badge.video{ border-color: #3498db; color: #3498db; }
+
+    /* ─── Mensaje tipo no previsualizable ────────────────────────── */
+    .no-preview {
+      padding: 24px;
+      text-align: center;
+      color: var(--dim);
+      font-size: 0.78rem;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+    }
+    .no-preview .np-icon { font-size: 2rem; display: block; margin-bottom: 8px; }
+
   </style>
 </head>
 <body>
@@ -1050,16 +1188,8 @@ decBtn.addEventListener('click', async () => {
       const meta    = JSON.parse(dec_txt.decode(plaintext.slice(4, 4 + metaLen)));
       const data    = plaintext.slice(4 + metaLen);
 
-      // Previsualización si es imagen
-      if (meta.mime.startsWith('image/')) {
-        const blob = new Blob([data], { type: meta.mime });
-        const url  = URL.createObjectURL(blob);
-        const img  = document.createElement('img');
-        img.src    = url;
-        img.alt    = meta.name;
-        document.getElementById('dec-preview').appendChild(img);
-        document.getElementById('dec-preview').classList.add('visible');
-      }
+      // Previsualización según tipo MIME
+      renderSinglePreview(data, meta, document.getElementById('dec-preview'));
 
       // Botón descarga
       const dlBtn = document.getElementById('dec-download-btn');
